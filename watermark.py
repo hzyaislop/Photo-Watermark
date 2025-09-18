@@ -17,7 +17,7 @@ def get_exif_date(img):
         return None
     return None
 
-def add_watermark(image_path, output_path, font_size_arg, color, position):
+def add_watermark(image_path, output_path, font_size, color, position):
     """Adds a date watermark to an image."""
     try:
         with Image.open(image_path) as img:
@@ -26,31 +26,42 @@ def add_watermark(image_path, output_path, font_size_arg, color, position):
                 print(f"Skipping {os.path.basename(image_path)}: No EXIF date found.")
                 return
 
-            # If font_size is not provided, calculate it based on image width
-            if font_size_arg == 0:
+            # If font_size is not provided by user, calculate it dynamically
+            if font_size == 0:
                 font_size = int(img.width / 40)
-            else:
-                font_size = font_size_arg
 
             draw = ImageDraw.Draw(img)
             
-            try:
-                # Try to use a common system font, fallback to a basic one
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except IOError:
-                print("Arial font not found. Using default font.")
-                # For default font, we can't set size, so we use a new approach for it
-                # This is a limitation of the default font in Pillow
-                if font_size_arg != 0:
-                    print("Warning: Cannot set font size with default font. The size will be small.")
-                font = ImageFont.load_default()
+            # --- Font search logic ---
+            font_to_use = None
+            # List of common fonts for different OS
+            font_paths = [
+                "DejaVuSans.ttf",  # Common on Linux
+                "FreeSans.ttf",    # Common on Linux
+                "arial.ttf",       # Common on Windows
+                "Helvetica.ttf",   # Common on macOS
+            ]
+            
+            for font_path in font_paths:
+                try:
+                    font_to_use = ImageFont.truetype(font_path, font_size)
+                    print(f"Using font: {font_path}")
+                    break
+                except IOError:
+                    continue
+            
+            if not font_to_use:
+                print("Warning: Could not find a common TrueType font (like DejaVuSans, Arial).")
+                print("Falling back to the default non-scalable font. Watermark size may not be as expected.")
+                font_to_use = ImageFont.load_default()
+            # --- End of font search logic ---
 
-            text_bbox = draw.textbbox((0, 0), date_str, font=font)
+            text_bbox = draw.textbbox((0, 0), date_str, font=font_to_use)
             text_width = text_bbox[2] - text_bbox[0]
             text_height = text_bbox[3] - text_bbox[1]
             
             img_width, img_height = img.size
-            margin = 10
+            margin = int(img.width / 100) # Make margin proportional
             
             positions = {
                 "top-left": (margin, margin),
@@ -65,7 +76,7 @@ def add_watermark(image_path, output_path, font_size_arg, color, position):
                 print(f"Invalid position: {position}. Using bottom-right.")
                 text_position = positions["bottom-right"]
 
-            draw.text(text_position, date_str, font=font, fill=color)
+            draw.text(text_position, date_str, font=font_to_use, fill=color)
             
             img.save(output_path)
             print(f"Watermarked image saved to: {output_path}")
@@ -80,7 +91,7 @@ def main():
     """Main function to parse arguments and process images."""
     parser = argparse.ArgumentParser(description="Add date watermarks to photos based on EXIF data.")
     parser.add_argument("directory", help="Path to the directory containing images.")
-    parser.add_argument("--font-size", type=int, default=0, help="Font size for the watermark text. Default is dynamic based on image width.")
+    parser.add_argument("--font-size", type=int, default=None, help="Font size for the watermark text. If not provided, it's calculated automatically based on image width.")
     parser.add_argument("--color", default="white", help="Color of the watermark text (e.g., 'white', '#FFFFFF').")
     parser.add_argument("--position", default="bottom-right", choices=["top-left", "top-right", "bottom-left", "bottom-right", "center"], help="Position of the watermark on the image.")
     
@@ -101,7 +112,10 @@ def main():
         if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
             image_path = os.path.join(args.directory, filename)
             output_path = os.path.join(output_dir, filename)
-            add_watermark(image_path, output_path, args.font_size, args.color, args.position)
+            
+            # Use provided font size or pass 0 to let the function calculate it
+            font_size_to_use = args.font_size if args.font_size else 0
+            add_watermark(image_path, output_path, font_size_to_use, args.color, args.position)
 
 if __name__ == "__main__":
     main()
